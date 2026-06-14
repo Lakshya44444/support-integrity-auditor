@@ -4,128 +4,43 @@ SIA Streamlit Dashboard
 Run: streamlit run app.py
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
 import json
 import os
+import numpy as np
+import pandas as pd
+import streamlit as st
 import torch
 import plotly.express as px
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# ── Page Config ───────────────────────────────────────────────
-st.set_page_config(
-    page_title="Support Integrity Auditor",
-    page_icon="🔍",
-    layout="wide"
-)
+import sia_core as core
 
-# ── Constants ─────────────────────────────────────────────────
-PRIORITY_MAP = {"Low":1, "Medium":2, "High":3, "Critical":4}
-NUM_TO_LABEL = {1:"Low", 2:"Medium", 3:"High", 4:"Critical"}
-MODEL_PATH   = "models/deberta_final"
+st.set_page_config(page_title="Support Integrity Auditor", page_icon="🔍", layout="wide")
 
-CRITICAL_PHRASES = [
-    "system down","outage","data loss","security breach","data breach",
-    "production down","cannot access","complete failure","total failure",
-    "breach","hacked","stolen","phishing","fraud","unauthorized","ransomware"
-]
-HIGH_PHRASES = [
-    "urgent","broken","failed","crash","not working","corrupted",
-    "missing data","blocked","locked out","payment failed",
-    "charged twice","login failed","cannot login","2fa issues",
-    "screen freezes","data not syncing"
-]
+MODEL_PATH = "models/deberta_final"
 
-def to_num(x):
-    return PRIORITY_MAP.get(str(x).strip(), 2)
 
-# ── Load Model ────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    model     = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
-    model     = model.float().eval()
-    threshold = 0.75
-    thresh_path = os.path.join(MODEL_PATH, "best_threshold.json")
-    if os.path.exists(thresh_path):
-        with open(thresh_path) as f:
-            threshold = json.load(f)["threshold"]
-    return tokenizer, model, threshold
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH).float().eval()
+    quartiles, threshold = core.load_feature_config(MODEL_PATH)
+    return tokenizer, model, threshold, quartiles
 
-# ── Helper Functions ──────────────────────────────────────────
-def get_inferred_severity(subject, description, assigned):
-    text = (subject + " " + description).lower()
-    score = to_num(assigned)
-    if any(p in text for p in CRITICAL_PHRASES):  score = 4
-    elif any(p in text for p in HIGH_PHRASES):     score = 3
-    return NUM_TO_LABEL[max(1, min(4, score))]
 
-def predict_ticket(tokenizer, model, threshold,
-                   subject, description, channel,
-                   category, res_time, satisfaction):
-    res_label = (
-        "res_low"      if res_time < 20  else
-        "res_medium"   if res_time < 50  else
-        "res_high"     if res_time < 100 else
-        "res_critical"
+def predict_ticket(tokenizer, model, subject, description, channel,
+                   category, res_time, satisfaction, quartiles):
+    text = core.build_text(
+        subject, description, channel, category,
+        core.res_bin_label(res_time, quartiles),
+        core.sat_bin_label(satisfaction),
     )
-    sat_label = (
-        "very_dissatisfied" if satisfaction <= 2 else
-        "dissatisfied"      if satisfaction == 3 else
-        "neutral"           if satisfaction == 4 else
-        "satisfied"
-    )
-    text = (f"{subject} [SEP] {description} [SEP] "
-            f"{channel} [SEP] {category} [SEP] "
-            f"{res_label} [SEP] {sat_label}")
-    enc  = tokenizer(text, truncation=True, padding=True,
-                     max_length=256, return_tensors="pt")
+    enc = tokenizer(text, truncation=True, padding=True, max_length=256, return_tensors="pt")
     with torch.no_grad():
-        out   = model(input_ids=enc["input_ids"],
-                      attention_mask=enc["attention_mask"])
+        out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"])
         probs = torch.softmax(out.logits.float(), dim=-1)
     return float(probs[0][1])
 
-def build_dossier(ticket_id, subject, description, channel,
-                  assigned, inferred, confidence, res_time, res_median=50):
-    text  = (subject + " " + description).lower()
-    found = [p for p in CRITICAL_PHRASES + HIGH_PHRASES if p in text]
-    delta = to_num(inferred) - to_num(assigned)
-    mtype = "Hidden Crisis" if delta > 0 else "False Alarm"
-    return {
-        "ticket_id":          ticket_id,
-        "assigned_priority":  assigned,
-        "inferred_severity":  inferred,
-        "mismatch_type":      mtype,
-        "severity_delta":     f"{delta:+d}",
-        "feature_evidence": [
-            {
-                "signal": "keyword",
-                "value":  found[0] if found else "none",
-                "weight": "0.60",
-                "field":  "Ticket_Subject + Ticket_Description"
-            },
-            {
-                "signal":         "resolution_time",
-                "value":          f"{res_time:.1f}h",
-                "interpretation": f"{res_time/res_median:.1f}x median",
-                "field":          "Resolution_Time_Hours"
-            },
-            {
-                "signal": "ticket_channel",
-                "value":  channel,
-                "weight": "0.10",
-                "field":  "Ticket_Channel"
-            }
-        ],
-        "constraint_analysis": (
-            f"Ticket assigned {assigned} but signals infer {inferred} "
-            f"(delta={delta:+d}). Resolution took {res_time:.0f}h. "
-            f"Classified as {mtype}."
-        ),
-        "confidence": str(round(confidence, 4))
-    }
 
 # ── UI ────────────────────────────────────────────────────────
 st.title("🔍 Support Integrity Auditor (SIA)")
@@ -143,37 +58,38 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         ticket_id = st.text_input("Ticket ID", value="TKT-0001")
-        subject   = st.text_input("Subject",
-                        value="Login failed - cannot access account")
-        description = st.text_area("Description",
-                        value="I have been unable to login for 2 hours. Getting error 403.",
-                        height=120)
-        assigned  = st.selectbox("Assigned Priority",
-                        ["Low","Medium","High","Critical"], index=0)
+        subject = st.text_input("Subject", value="Login failed - cannot access account")
+        description = st.text_area(
+            "Description",
+            value="I have been unable to login for 2 hours. Getting error 403.",
+            height=120,
+        )
+        assigned = st.selectbox("Assigned Priority", core.PRIORITY_ORDER, index=0)
 
     with col2:
-        channel      = st.selectbox("Channel",
-                            ["Email","Chat","Phone","Web Form"])
-        category     = st.selectbox("Category",
-                            ["Technical","Billing","Account","General Inquiry","Fraud"])
-        res_time     = st.slider("Resolution Time (hours)", 1, 200, 48)
+        channel = st.selectbox("Channel", ["Email", "Chat", "Phone", "Web Form", "Social Media"])
+        category = st.selectbox("Category", ["Technical", "Billing", "Account", "General Inquiry", "Fraud"])
+        res_time = st.slider("Resolution Time (hours)", 1, 200, 48)
         satisfaction = st.slider("Satisfaction Score", 1, 5, 3)
 
     if st.button("🔍 Analyze Ticket", type="primary", use_container_width=True):
         try:
-            tokenizer, model, threshold = load_model()
-            confidence = predict_ticket(
-                tokenizer, model, threshold,
-                subject, description, channel,
-                category, res_time, satisfaction
-            )
+            tokenizer, model, threshold, quartiles = load_model()
+            confidence = predict_ticket(tokenizer, model, subject, description,
+                                        channel, category, res_time, satisfaction, quartiles)
             is_mismatch = confidence >= threshold
-            inferred    = get_inferred_severity(subject, description, assigned)
-            delta       = to_num(inferred) - to_num(assigned)
-            mtype       = "Hidden Crisis" if delta > 0 else "False Alarm" if delta < 0 else "Correct"
+
+            assigned_num = core.to_num(assigned)
+            fused = core.fused_severity(subject, description, assigned_num, res_time, quartiles)
+            inferred = core.NUM_TO_LABEL[fused]
+            delta = fused - assigned_num
+            r = core.rule_score(subject, description, assigned_num)
+            found = any(p in (subject + " " + description).lower()
+                        for p in core.CRITICAL_PHRASES + core.HIGH_PHRASES)
+            mtype = (core.decide_mismatch_type(delta, r, assigned_num, found)
+                     if is_mismatch else "Correct")
 
             st.divider()
-
             if is_mismatch:
                 icon = "🔴" if mtype == "Hidden Crisis" else "🟡"
                 st.error(f"{icon} **MISMATCH DETECTED — {mtype}**")
@@ -181,38 +97,37 @@ with tab1:
                 st.success("✅ **Priority Correctly Assigned**")
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Assigned Priority",  assigned)
-            c2.metric("Inferred Severity",  inferred)
-            c3.metric("Severity Delta",     f"{delta:+d}")
-            c4.metric("Confidence",         f"{confidence:.1%}")
+            c1.metric("Assigned Priority", assigned)
+            c2.metric("Inferred Severity", inferred)
+            c3.metric("Severity Delta", f"{delta:+d}")
+            c4.metric("Confidence", f"{confidence:.1%}")
 
             if is_mismatch:
-                dossier = build_dossier(
+                dossier = core.build_dossier(
                     ticket_id, subject, description, channel,
-                    assigned, inferred, confidence, res_time
+                    assigned, inferred, confidence, float(res_time), quartiles, mtype,
                 )
                 st.subheader("📋 Evidence Dossier")
                 st.json(dossier)
                 st.download_button(
-                    label="⬇ Download Dossier JSON",
+                    "⬇ Download Dossier JSON",
                     data=json.dumps(dossier, indent=2),
                     file_name=f"{ticket_id}_dossier.json",
-                    mime="application/json"
+                    mime="application/json",
                 )
-
         except Exception as e:
             st.error(f"Error: {e}")
-            st.info("Make sure model is available at models/deberta_final/")
+            st.info("Make sure the model is available at models/deberta_final/")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 2 — BATCH UPLOAD
 # ══════════════════════════════════════════════════════════════
 with tab2:
     st.header("Batch CSV Analysis")
-    st.info("Upload a CSV with columns: Ticket_ID, Ticket_Subject, Ticket_Description, Priority_Level, Ticket_Channel, Issue_Category, Resolution_Time_Hours, Satisfaction_Score")
+    st.info("Upload a CSV with columns: Ticket_ID, Ticket_Subject, Ticket_Description, "
+            "Priority_Level, Ticket_Channel, Issue_Category, Resolution_Time_Hours, Satisfaction_Score")
 
     uploaded = st.file_uploader("Upload CSV", type=["csv"])
-
     if uploaded:
         df = pd.read_csv(uploaded)
         st.write(f"✓ Loaded **{len(df)}** tickets")
@@ -220,64 +135,58 @@ with tab2:
 
         if st.button("🔍 Analyze All Tickets", type="primary", use_container_width=True):
             try:
-                tokenizer, model, threshold = load_model()
-                results  = []
+                tokenizer, model, threshold, quartiles = load_model()
+                results = []
                 progress = st.progress(0, text="Analyzing...")
 
                 for i, (_, row) in enumerate(df.iterrows()):
-                    conf = predict_ticket(
-                        tokenizer, model, threshold,
-                        str(row.get("Ticket_Subject","")),
-                        str(row.get("Ticket_Description","")),
-                        str(row.get("Ticket_Channel","Email")),
-                        str(row.get("Issue_Category","General Inquiry")),
-                        float(row.get("Resolution_Time_Hours", 50)),
-                        float(row.get("Satisfaction_Score", 3))
-                    )
-                    is_m     = conf >= threshold
-                    inferred = get_inferred_severity(
-                        str(row.get("Ticket_Subject","")),
-                        str(row.get("Ticket_Description","")),
-                        str(row.get("Priority_Level","Medium"))
-                    )
-                    delta = to_num(inferred) - to_num(str(row.get("Priority_Level","Medium")))
-                    mtype = (
-                        "Hidden Crisis" if (is_m and delta > 0) else
-                        "False Alarm"   if (is_m and delta < 0) else
-                        "Correct"
-                    )
+                    subj = str(row.get("Ticket_Subject", ""))
+                    desc = str(row.get("Ticket_Description", ""))
+                    chan = str(row.get("Ticket_Channel", "Email"))
+                    cat = str(row.get("Issue_Category", "General Inquiry"))
+                    rt = float(row.get("Resolution_Time_Hours", quartiles["median"]))
+                    sat = float(row.get("Satisfaction_Score", 3))
+                    assigned = str(row.get("Priority_Level", "Medium"))
+                    assigned_num = core.to_num(assigned)
+
+                    conf = predict_ticket(tokenizer, model, subj, desc, chan, cat, rt, sat, quartiles)
+                    is_m = conf >= threshold
+                    fused = core.fused_severity(subj, desc, assigned_num, rt, quartiles)
+                    delta = fused - assigned_num
+                    r = core.rule_score(subj, desc, assigned_num)
+                    found = any(p in (subj + " " + desc).lower()
+                                for p in core.CRITICAL_PHRASES + core.HIGH_PHRASES)
+                    mtype = core.decide_mismatch_type(delta, r, assigned_num, found) if is_m else "Correct"
+
                     results.append({
-                        "Ticket_ID":   row.get("Ticket_ID",""),
-                        "Assigned":    row.get("Priority_Level",""),
-                        "Inferred":    inferred,
-                        "Delta":       f"{delta:+d}",
-                        "Mismatch":    "Yes" if is_m else "No",
-                        "Type":        mtype,
-                        "Confidence":  round(conf, 4)
+                        "Ticket_ID": row.get("Ticket_ID", f"row_{i}"),
+                        "Priority_Level": assigned,
+                        "inferred_severity": core.NUM_TO_LABEL[fused],
+                        "severity_delta": delta,
+                        "Mismatch": "Yes" if is_m else "No",
+                        "mismatch_type": mtype,
+                        "Issue_Category": cat,
+                        "Ticket_Channel": chan,
+                        "confidence": round(conf, 4),
                     })
-                    progress.progress((i+1)/len(df),
-                        text=f"Analyzing {i+1}/{len(df)}...")
+                    progress.progress((i + 1) / len(df), text=f"Analyzing {i+1}/{len(df)}...")
 
                 results_df = pd.DataFrame(results)
                 n_mismatch = results_df["Mismatch"].eq("Yes").sum()
-
                 st.success(f"✓ Done! **{n_mismatch}** mismatches found out of {len(df)} tickets")
 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Total",         len(df))
-                c2.metric("Hidden Crisis", (results_df["Type"]=="Hidden Crisis").sum())
-                c3.metric("False Alarms",  (results_df["Type"]=="False Alarm").sum())
+                c1.metric("Total", len(df))
+                c2.metric("Hidden Crisis", (results_df["mismatch_type"] == "Hidden Crisis").sum())
+                c3.metric("False Alarms", (results_df["mismatch_type"] == "False Alarm").sum())
 
                 st.dataframe(results_df, use_container_width=True)
-
                 st.download_button(
                     "⬇ Download Predictions CSV",
                     results_df.to_csv(index=False),
-                    "predictions.csv",
-                    "text/csv",
-                    use_container_width=True
+                    "predictions.csv", "text/csv", use_container_width=True,
                 )
-
+                st.caption("Tip: download this CSV and upload it in the Dashboard tab.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -286,97 +195,81 @@ with tab2:
 # ══════════════════════════════════════════════════════════════
 with tab3:
     st.header("Priority Mismatch Dashboard")
-    st.info("Upload a predictions CSV (output from Batch Upload or predict.py)")
+    st.info("Upload a predictions CSV (output from the Batch tab or predict.py)")
 
-    dash_file = st.file_uploader("Upload Predictions CSV",
-                                  type=["csv"], key="dashboard")
-
-    if dash_file:
+    dash_file = st.file_uploader("Upload Predictions CSV", type=["csv"], key="dashboard")
+    if not dash_file:
+        st.markdown("""
+        ### How to use:
+        1. Go to **Batch Upload**, upload your tickets CSV, click Analyze.
+        2. Download the predictions CSV.
+        3. Upload that CSV here.
+        """)
+    else:
         df = pd.read_csv(dash_file)
+        type_col = "mismatch_type" if "mismatch_type" in df.columns else None
+        asgn_col = "Priority_Level" if "Priority_Level" in df.columns else (
+            "Assigned" if "Assigned" in df.columns else None)
 
-        type_col = "Type" if "Type" in df.columns else "mismatch_type"
-        asgn_col = "Assigned" if "Assigned" in df.columns else "Priority_Level"
-
-        if type_col in df.columns:
-            # Metrics
-            total     = len(df)
-            n_mis     = df[type_col].ne("Correct").sum()
-            n_hc      = (df[type_col] == "Hidden Crisis").sum()
-            n_fa      = (df[type_col] == "False Alarm").sum()
+        if not type_col:
+            st.warning("CSV needs a 'mismatch_type' column. Use output from the Batch tab or predict.py.")
+        else:
+            total = len(df)
+            n_mis = df[type_col].ne("Correct").sum()
+            n_hc = (df[type_col] == "Hidden Crisis").sum()
+            n_fa = (df[type_col] == "False Alarm").sum()
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Tickets",  total)
-            c2.metric("Mismatches",     n_mis, f"{n_mis/total*100:.1f}%")
-            c3.metric("Hidden Crises",  n_hc)
-            c4.metric("False Alarms",   n_fa)
-
+            c1.metric("Total Tickets", total)
+            c2.metric("Mismatches", int(n_mis), f"{n_mis/total*100:.1f}%")
+            c3.metric("Hidden Crises", int(n_hc))
+            c4.metric("False Alarms", int(n_fa))
             st.divider()
 
-            # Row 1 — Pie + Bar
+            # Row 1 — distributions
             col1, col2 = st.columns(2)
-
             with col1:
                 counts = df[type_col].value_counts()
-                fig = px.pie(
-                    values=counts.values,
-                    names=counts.index,
-                    title="Mismatch Type Distribution",
-                    color_discrete_map={
-                        "Correct":       "#2ecc71",
-                        "Hidden Crisis": "#e74c3c",
-                        "False Alarm":   "#f39c12"
-                    },
-                    hole=0.4
-                )
+                fig = px.pie(values=counts.values, names=counts.index,
+                             title="Mismatch Type Distribution", hole=0.4,
+                             color=counts.index,
+                             color_discrete_map={"Correct": "#2ecc71",
+                                                 "Hidden Crisis": "#e74c3c",
+                                                 "False Alarm": "#f39c12"})
                 st.plotly_chart(fig, use_container_width=True)
-
             with col2:
-                counts2 = df[asgn_col].value_counts()
-                fig2    = px.bar(
-                    x=counts2.index,
-                    y=counts2.values,
-                    title="Assigned Priority Distribution",
-                    labels={"x":"Priority","y":"Count"},
-                    color=counts2.index,
-                    color_discrete_map={
-                        "Low":"#2ecc71","Medium":"#f39c12",
-                        "High":"#e67e22","Critical":"#e74c3c"
-                    }
-                )
-                st.plotly_chart(fig2, use_container_width=True)
+                if asgn_col:
+                    counts2 = df[asgn_col].value_counts()
+                    fig2 = px.bar(x=counts2.index, y=counts2.values,
+                                  title="Assigned Priority Distribution",
+                                  labels={"x": "Priority", "y": "Count"},
+                                  color=counts2.index,
+                                  color_discrete_map={"Low": "#2ecc71", "Medium": "#f39c12",
+                                                      "High": "#e67e22", "Critical": "#e74c3c"})
+                    st.plotly_chart(fig2, use_container_width=True)
 
-            # Row 2 — Heatmap
-            if "Inferred" in df.columns or "inferred_severity" in df.columns:
-                inf_col = "Inferred" if "Inferred" in df.columns else "inferred_severity"
-                st.subheader("Severity Delta Heatmap")
-                order = ["Low","Medium","High","Critical"]
-                pivot = pd.crosstab(df[asgn_col], df[inf_col])
-                pivot = pivot.reindex(index=order, columns=order, fill_value=0)
-                fig3  = px.imshow(
-                    pivot,
-                    text_auto=True,
-                    color_continuous_scale="RdYlGn_r",
-                    title="Assigned Priority vs Inferred Severity",
-                    labels={"x":"Inferred Severity","y":"Assigned Priority"}
-                )
+            # Row 2 — REQUIRED: severity-delta heatmap across categories x channels
+            cat_col = "Issue_Category" if "Issue_Category" in df.columns else None
+            chan_col = "Ticket_Channel" if "Ticket_Channel" in df.columns else None
+            if cat_col and chan_col and "severity_delta" in df.columns:
+                st.subheader("Severity Delta Heatmap — Category × Channel")
+                df["severity_delta"] = pd.to_numeric(df["severity_delta"], errors="coerce")
+                pivot = df.pivot_table(index=cat_col, columns=chan_col,
+                                       values="severity_delta", aggfunc="mean")
+                fig3 = px.imshow(pivot, text_auto=".2f", color_continuous_scale="RdBu_r",
+                                 color_continuous_midpoint=0, aspect="auto",
+                                 title="Mean Severity Delta (inferred − assigned). "
+                                       "Red = under-prioritised (Hidden Crisis), Blue = over-prioritised (False Alarm)",
+                                 labels={"x": "Channel", "y": "Category", "color": "Δ"})
                 st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.caption("Severity-delta heatmap needs Issue_Category, Ticket_Channel "
+                           "and severity_delta columns.")
 
-            # Row 3 — Top mismatched tickets
+            # Row 3 — top flagged tickets
             st.subheader("Top Flagged Tickets")
-            conf_col = "Confidence" if "Confidence" in df.columns else "confidence"
-            if conf_col in df.columns:
-                top = (df[df[type_col] != "Correct"]
-                       .sort_values(conf_col, ascending=False)
-                       .head(10))
-                st.dataframe(top, use_container_width=True)
-        else:
-            st.warning("Upload a valid predictions CSV with mismatch type column.")
-    else:
-        st.markdown("""
-        ### How to use Dashboard:
-        1. Go to **Batch Upload** tab
-        2. Upload your tickets CSV
-        3. Click Analyze
-        4. Download predictions CSV
-        5. Come back here and upload that CSV
-        """)
+            conf_col = "confidence" if "confidence" in df.columns else None
+            flagged = df[df[type_col] != "Correct"]
+            if conf_col:
+                flagged = flagged.sort_values(conf_col, ascending=False)
+            st.dataframe(flagged.head(10), use_container_width=True)

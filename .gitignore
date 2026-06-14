@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# Isolated transformers 4.46.3 install (local-run helper)
+_tf446/
+
+# Raw dataset — download from Kaggle (see README); too large for git
+customer_support_tickets.csv
+enhanced_customer_support_data.csv
+data/*.csv
+!data/adversarial_tickets.csv
+
+# Generated artifacts (reproducible from the pipeline)
+pseudo_labeled.csv
+predictions.csv
+outputs/
+
+# Model weights — large; host on Hugging Face, not git
+models/
+*.safetensors
+*.safetensors.bak
+*.bin
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Notebook backups
+*.ipynb.bak

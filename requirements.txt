@@ -1,11 +1,19 @@
-torch==2.1.0
-transformers==4.36.0
-sentence-transformers==2.2.2
-scikit-learn==1.3.0
-pandas==2.0.3
-numpy==1.24.3
-streamlit==1.28.0
-plotly==5.17.0
-matplotlib==3.7.2
-seaborn==0.12.2
-imbalanced-learn==0.11.0
+# ── Core ML / NLP stack ───────────────────────────────────────
+torch==2.6.0
+transformers==4.46.3
+huggingface_hub==0.26.2       # load model + config from a HF repo (hosting)
+sentencepiece==0.2.0          # REQUIRED by the DeBERTa-v3 tokenizer
+protobuf==4.25.5              # REQUIRED to load the SentencePiece model
+
+# ── Data / metrics ────────────────────────────────────────────
+scikit-learn==1.5.2
+pandas==2.2.3
+numpy==1.26.4
+
+# ── Streamlit web app ─────────────────────────────────────────
+streamlit==1.40.2
+plotly==5.24.1
+
+# ── Notebook EDA only (not needed to run the app) ─────────────
+matplotlib==3.9.2
+seaborn==0.13.2
