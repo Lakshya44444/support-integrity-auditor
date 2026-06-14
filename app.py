@@ -17,9 +17,21 @@ import sia_core as core
 
 st.set_page_config(page_title="Support Integrity Auditor", page_icon="🔍", layout="wide")
 
-# Local folder by default; on Streamlit Cloud set the env var / secret
-# SIA_MODEL_PATH to your Hugging Face repo id (e.g. "username/sia-deberta-v3").
-MODEL_PATH = os.environ.get("SIA_MODEL_PATH", "models/deberta_final")
+# Local folder by default; on Streamlit Cloud set SIA_MODEL_PATH (env var or
+# secret) to your Hugging Face repo id (e.g. "lakshya234/sia-deberta-v3").
+def _resolve_model_path():
+    p = os.environ.get("SIA_MODEL_PATH")
+    if p:
+        return p
+    try:
+        if "SIA_MODEL_PATH" in st.secrets:
+            return st.secrets["SIA_MODEL_PATH"]
+    except Exception:
+        pass
+    return "models/deberta_final"
+
+
+MODEL_PATH = _resolve_model_path()
 
 
 @st.cache_resource
