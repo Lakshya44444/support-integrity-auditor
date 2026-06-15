@@ -40,7 +40,7 @@ it, so training and inference are computed **identically** — no drift.
 
 ---
 
-## Stage 1 — Pseudo-label generation (self-supervised)
+## Stage 1 - Pseudo-label generation (self-supervised)
 
 Two independent signals are fused (the spec requires >= 2):
 
@@ -75,7 +75,7 @@ near-independent, confirming the signals contribute complementary information.
 
 ---
 
-## Stage 2 — Fine-tuned classifier
+## Stage 2 - Fine-tuned classifier
 
 - **Model:** `microsoft/deberta-v3-small`, fine-tuned with a fresh 2-class head
   (not a frozen zero-shot pipeline).
@@ -98,7 +98,7 @@ The decision threshold and resolution-time quartiles are persisted in
 
 ---
 
-## Stage 3 — Evidence Dossier
+## Stage 3 - Evidence Dossier
 
 Generated for every flagged ticket:
 
