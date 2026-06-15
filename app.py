@@ -65,9 +65,7 @@ def predict_ticket(tokenizer, model, subject, description, channel,
     return float(probs[0][1])
 
 
-# ══════════════════════════════════════════════════════════════
 # STYLING
-# ══════════════════════════════════════════════════════════════
 def inject_css():
     st.markdown(
         """
@@ -275,16 +273,14 @@ def style_fig(fig):
     return fig
 
 
-# ══════════════════════════════════════════════════════════════
 # UI
-# ══════════════════════════════════════════════════════════════
 inject_css()
 render_hero()
 st.write("")
 
 tab1, tab2, tab3 = st.tabs(["Single Ticket", "Batch Analysis", "Dashboard"])
 
-# ── TAB 1 — SINGLE TICKET ─────────────────────────────────────
+# TAB 1 — SINGLE TICKET
 with tab1:
     st.markdown('<div class="sec">Analyze a Single Ticket</div>', unsafe_allow_html=True)
     st.markdown('<div class="sec-sub">Enter the ticket details and run the auditor.</div>',
@@ -344,7 +340,7 @@ with tab1:
             st.error(f"Error: {e}")
             st.info("Make sure the model is available at the configured SIA_MODEL_PATH.")
 
-# ── TAB 2 — BATCH ─────────────────────────────────────────────
+# TAB 2 — BATCH
 with tab2:
     st.markdown('<div class="sec">Batch Ticket Analysis</div>', unsafe_allow_html=True)
     st.markdown(
@@ -421,7 +417,7 @@ with tab2:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# ── TAB 3 — DASHBOARD ─────────────────────────────────────────
+# TAB 3 — DASHBOARD
 with tab3:
     st.markdown('<div class="sec">Priority Mismatch Dashboard</div>', unsafe_allow_html=True)
     st.markdown('<div class="sec-sub">Upload a predictions CSV (from the Batch tab or predict.py).</div>',

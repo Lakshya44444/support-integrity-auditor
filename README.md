@@ -1,4 +1,4 @@
-# 🔍 Support Integrity Auditor (SIA)
+# Support Integrity Auditor (SIA)
 
 An evidence-grounded, self-supervised auditor that detects **Priority Mismatch** in
 CRM support tickets — cases where a ticket's objective characteristics (text,
@@ -118,10 +118,10 @@ inverted resolution-time relationship and confirms they contribute complementary
 
 | Metric | Result | Threshold | Status |
 |---|---:|---|:--:|
-| Binary Accuracy | **0.8450** | ≥ 0.83 | ✅ |
-| Macro F1 | **0.8131** | ≥ 0.82 | ⚠️ |
-| Recall (Correct) | **0.8342** | ≥ 0.78 | ✅ |
-| Recall (Mismatch) | **0.8780** | ≥ 0.78 | ✅ |
+| Binary Accuracy | **0.8450** | >= 0.83 | Pass |
+| Macro F1 | **0.8131** | >= 0.82 | Borderline |
+| Recall (Correct) | **0.8342** | >= 0.78 | Pass |
+| Recall (Mismatch) | **0.8780** | >= 0.78 | Pass |
 
 > The decision threshold (0.80) and resolution-time quartiles are persisted in
 > `models/deberta_final/feature_config.json` so inference reproduces the exact
@@ -198,7 +198,7 @@ streamlit run app.py
 > `feature_config.json`) must be present for `predict.py` and `app.py`. Train
 > locally, or download the folder produced by `notebook.ipynb` on Kaggle.
 >
-> **⚠️ transformers version:** the checkpoint must run on `transformers==4.46.3`
+> **Important — transformers version:** the checkpoint must run on `transformers==4.46.3`
 > (the version it was trained with). Newer 5.x releases compute DeBERTa-v3
 > differently and produce flat ~0.5 output. The pinned `requirements.txt` already
 > handles this. A checkpoint saved by an older transformers may use the legacy

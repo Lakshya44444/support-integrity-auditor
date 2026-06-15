@@ -12,12 +12,12 @@ consistent (no drift between training and inference).
 import os
 import json
 
-# ── Priority encoding ─────────────────────────────────────────
+# Priority encoding
 PRIORITY_MAP = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 NUM_TO_LABEL = {1: "Low", 2: "Medium", 3: "High", 4: "Critical"}
 PRIORITY_ORDER = ["Low", "Medium", "High", "Critical"]
 
-# ── Keyword signals (rule-based NLP) ──────────────────────────
+# Keyword signals (rule-based NLP)
 CRITICAL_PHRASES = [
     "system down", "outage", "data loss", "security breach", "data breach",
     "production down", "cannot access", "complete failure", "total failure",
@@ -53,9 +53,7 @@ def to_num(x):
     return PRIORITY_MAP.get(str(x).strip(), 2)
 
 
-# ══════════════════════════════════════════════════════════════
 # SIGNAL 1 — Rule-based NLP severity
-# ══════════════════════════════════════════════════════════════
 def rule_score(subject, description, assigned_num):
     """Infer severity (1-4) from text keywords + negation."""
     t = (str(subject) + " " + str(description)).lower()
@@ -71,9 +69,7 @@ def rule_score(subject, description, assigned_num):
     return max(1, min(4, score))
 
 
-# ══════════════════════════════════════════════════════════════
 # SIGNAL 2 — Resolution-time severity (quartile proxy)
-# ══════════════════════════════════════════════════════════════
 def res_score(res_time, quartiles):
     """Map resolution hours to a 1-4 severity using training quartiles."""
     if res_time is None:
@@ -109,9 +105,7 @@ def sat_bin_label(score):
     return "satisfied"
 
 
-# ══════════════════════════════════════════════════════════════
 # FUSION — combined "true" severity (independent of assigned label)
-# ══════════════════════════════════════════════════════════════
 def fused_severity(subject, description, assigned_num, res_time, quartiles):
     """Fuse the two signals into a single inferred severity (1-4)."""
     r = rule_score(subject, description, assigned_num)
@@ -131,9 +125,7 @@ def decide_mismatch_type(delta, rule_sc, assigned_num, found_keyword):
     return "False Alarm"
 
 
-# ══════════════════════════════════════════════════════════════
 # MODEL INPUT TEXT — must be IDENTICAL to training
-# ══════════════════════════════════════════════════════════════
 def build_text(subject, description, channel, category, res_bin, sat_bin):
     """The exact [SEP]-joined string the DeBERTa model was trained on."""
     return (
@@ -142,9 +134,7 @@ def build_text(subject, description, channel, category, res_bin, sat_bin):
     )
 
 
-# ══════════════════════════════════════════════════════════════
 # CONFIG IO
-# ══════════════════════════════════════════════════════════════
 def save_feature_config(model_dir, quartiles, threshold, model_name):
     os.makedirs(model_dir, exist_ok=True)
     cfg = {
@@ -193,9 +183,7 @@ def load_feature_config(model_dir):
     return dict(DEFAULT_RES_QUARTILES), thresh
 
 
-# ══════════════════════════════════════════════════════════════
 # EVIDENCE DOSSIER — every field is traceable to an input column
-# ══════════════════════════════════════════════════════════════
 def build_dossier(ticket_id, subject, description, channel,
                   assigned, inferred, confidence, res_time,
                   quartiles, mismatch_type):

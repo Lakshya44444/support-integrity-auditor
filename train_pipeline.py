@@ -33,9 +33,7 @@ def compute_quartiles(df):
             "median": float(times.median())}
 
 
-# ══════════════════════════════════════════════════════════════
 # STAGE 1 — PSEUDO LABEL GENERATION (self-supervised)
-# ══════════════════════════════════════════════════════════════
 def generate_pseudo_labels(df, quartiles):
     logger.info("[Stage 1] Generating pseudo labels...")
 
@@ -92,9 +90,7 @@ def generate_pseudo_labels(df, quartiles):
     return df_out
 
 
-# ══════════════════════════════════════════════════════════════
 # DATASET
-# ══════════════════════════════════════════════════════════════
 class TicketDataset(Dataset):
     def __init__(self, df, tokenizer, quartiles, max_length=256):
         self.labels = df["mismatch_label"].values
@@ -128,9 +124,7 @@ class TicketDataset(Dataset):
         }
 
 
-# ══════════════════════════════════════════════════════════════
 # STAGE 2 — TRAINING
-# ══════════════════════════════════════════════════════════════
 def train(args):
     df = pd.read_csv(args.data)
     logger.info(f"Loaded {len(df)} tickets")
