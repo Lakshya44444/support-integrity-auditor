@@ -75,8 +75,50 @@ def inject_css():
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
         html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        .stApp { background:
+            radial-gradient(1100px 500px at 50% -10%, #e3ecfb 0%, rgba(227,236,251,0) 60%), #eef2f7; }
         #MainMenu, footer, header [data-testid="stStatusWidget"] { visibility: hidden; }
-        .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1180px; }
+        .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1140px; }
+
+        /* Inputs */
+        [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input {
+            background:#fff !important; border:1px solid #e2e8f0 !important;
+            border-radius:10px !important; color:#0f172a !important; }
+        [data-baseweb="select"] > div {
+            background:#fff !important; border:1px solid #e2e8f0 !important; border-radius:10px !important; }
+        [data-testid="stTextInput"] input:focus, [data-testid="stTextArea"] textarea:focus {
+            border-color:#2563eb !important; box-shadow:0 0 0 3px rgba(37,99,235,.12) !important; }
+        label[data-testid="stWidgetLabel"] p { font-weight:600; color:#334155; font-size:.86rem; }
+
+        /* Tabs as a segmented control */
+        .stTabs [data-baseweb="tab-list"] {
+            gap:6px; background:#fff; padding:6px; border-radius:12px;
+            border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+        .stTabs [data-baseweb="tab"] {
+            border-radius:9px; padding:9px 20px; color:#475569; }
+        .stTabs [data-baseweb="tab"]:hover { background:#f1f5f9; }
+        .stTabs [aria-selected="true"] {
+            background:linear-gradient(120deg,#2563eb,#1e3a8a) !important; color:#fff !important; }
+        .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display:none; }
+
+        /* Primary button */
+        .stButton button { font-weight:700; border-radius:11px; height:3.1rem; border:none; }
+        .stButton button[kind="primary"] {
+            background:linear-gradient(120deg,#2563eb,#1e3a8a); color:#fff;
+            box-shadow:0 10px 22px -10px rgba(37,99,235,.7); }
+        .stButton button[kind="primary"]:hover { filter:brightness(1.07); }
+        .stDownloadButton button { border-radius:10px; border:1px solid #cbd5e1; font-weight:600; }
+
+        /* Bordered containers (form card) */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background:#fff; border:1px solid #e6ebf3 !important; border-radius:16px;
+            box-shadow:0 2px 10px rgba(15,23,42,.05); }
+
+        /* File uploader + dataframe + expander polish */
+        [data-testid="stFileUploaderDropzone"] {
+            background:#fff; border:1.5px dashed #c7d2e3; border-radius:12px; }
+        [data-testid="stExpander"] { border-radius:12px; border:1px solid #e2e8f0; background:#fff; }
 
         /* Hero */
         .sia-hero {
@@ -248,21 +290,22 @@ with tab1:
     st.markdown('<div class="sec-sub">Enter the ticket details and run the auditor.</div>',
                 unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        ticket_id = st.text_input("Ticket ID", value="TKT-0001")
-        subject = st.text_input("Subject", value="Login failed - cannot access account")
-        description = st.text_area(
-            "Description",
-            value="I have been unable to login for 2 hours. Getting error 403.",
-            height=120,
-        )
-        assigned = st.selectbox("Assigned Priority", core.PRIORITY_ORDER, index=0)
-    with col2:
-        channel = st.selectbox("Channel", ["Email", "Chat", "Phone", "Web Form", "Social Media"])
-        category = st.selectbox("Category", ["Technical", "Billing", "Account", "General Inquiry", "Fraud"])
-        res_time = st.slider("Resolution Time (hours)", 1, 200, 48)
-        satisfaction = st.slider("Satisfaction Score", 1, 5, 3)
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            ticket_id = st.text_input("Ticket ID", value="TKT-0001")
+            subject = st.text_input("Subject", value="Login failed - cannot access account")
+            description = st.text_area(
+                "Description",
+                value="I have been unable to login for 2 hours. Getting error 403.",
+                height=120,
+            )
+            assigned = st.selectbox("Assigned Priority", core.PRIORITY_ORDER, index=0)
+        with col2:
+            channel = st.selectbox("Channel", ["Email", "Chat", "Phone", "Web Form", "Social Media"])
+            category = st.selectbox("Category", ["Technical", "Billing", "Account", "General Inquiry", "Fraud"])
+            res_time = st.slider("Resolution Time (hours)", 1, 200, 48)
+            satisfaction = st.slider("Satisfaction Score", 1, 5, 3)
 
     if st.button("Analyze Ticket", type="primary", use_container_width=True,
                  icon=":material/search:"):
