@@ -4,9 +4,10 @@ SIA Streamlit Dashboard
 Run: streamlit run app.py
 """
 
-import json
 import os
-import numpy as np
+import json
+import html
+
 import pandas as pd
 import streamlit as st
 import torch
@@ -15,7 +16,12 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 import sia_core as core
 
-st.set_page_config(page_title="Support Integrity Auditor", page_icon="🔍", layout="wide")
+st.set_page_config(
+    page_title="Support Integrity Auditor",
+    page_icon=":material/policy:",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 # Local folder by default; on Streamlit Cloud set SIA_MODEL_PATH (env var or
 # secret) to your Hugging Face repo id (e.g. "lakshya234/sia-deberta-v3").
@@ -32,6 +38,9 @@ def _resolve_model_path():
 
 
 MODEL_PATH = _resolve_model_path()
+
+# Plotly shared theme
+PLOTLY_FONT = dict(family="Inter, sans-serif", color="#1e293b")
 
 
 @st.cache_resource
@@ -56,18 +65,188 @@ def predict_ticket(tokenizer, model, subject, description, channel,
     return float(probs[0][1])
 
 
-# ── UI ────────────────────────────────────────────────────────
-st.title("🔍 Support Integrity Auditor (SIA)")
-st.markdown("*Detects priority mismatches in CRM support tickets*")
-st.divider()
+# ══════════════════════════════════════════════════════════════
+# STYLING
+# ══════════════════════════════════════════════════════════════
+def inject_css():
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-tab1, tab2, tab3 = st.tabs(["🎫 Single Ticket", "📦 Batch Upload", "📊 Dashboard"])
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        #MainMenu, footer, header [data-testid="stStatusWidget"] { visibility: hidden; }
+        .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1180px; }
+
+        /* Hero */
+        .sia-hero {
+            background: linear-gradient(120deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+            border-radius: 18px; padding: 34px 40px; color: #fff;
+            display: flex; align-items: center; gap: 26px;
+            box-shadow: 0 18px 40px -18px rgba(37,99,235,.55);
+        }
+        .sia-hero .icon {
+            background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
+            border-radius: 16px; padding: 14px; display:flex; flex-shrink:0;
+        }
+        .sia-hero h1 { font-size: 2rem; font-weight: 800; margin: 0; letter-spacing:-.5px; }
+        .sia-hero p { margin: 6px 0 0; color: #cbd5e1; font-size: 1.02rem; }
+        .chips { margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; }
+        .chip { background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22);
+                color:#e2e8f0; padding:5px 13px; border-radius:999px; font-size:.8rem; font-weight:600; }
+
+        /* Section heading */
+        .sec { font-size: 1.25rem; font-weight: 700; color:#0f172a; margin: 6px 0 2px; }
+        .sec-sub { color:#64748b; font-size:.9rem; margin-bottom: 8px; }
+
+        /* Result banner */
+        .result { border-radius: 14px; padding: 20px 24px; margin: 6px 0 4px;
+                  border:1px solid; display:flex; align-items:center; gap:16px; }
+        .result .tag { font-size:.72rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+        .result .head { font-size:1.35rem; font-weight:800; margin-top:2px; }
+        .result.crisis     { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+        .result.falsealarm { background:#fffbeb; border-color:#fde68a; color:#b45309; }
+        .result.correct    { background:#ecfdf5; border-color:#a7f3d0; color:#047857; }
+        .dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+        .dot.crisis{background:#dc2626;} .dot.falsealarm{background:#d97706;} .dot.correct{background:#059669;}
+
+        /* Metric cards */
+        .mrow { display:grid; grid-template-columns: repeat(4,1fr); gap:14px; margin:14px 0 6px; }
+        .mcard { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 18px;
+                 box-shadow:0 1px 2px rgba(15,23,42,.04); }
+        .mcard .l { color:#64748b; font-size:.78rem; font-weight:600; text-transform:uppercase; letter-spacing:.4px; }
+        .mcard .v { color:#0f172a; font-size:1.6rem; font-weight:800; margin-top:4px; }
+
+        /* Dossier */
+        .dossier { background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:22px 24px; margin-top:6px; }
+        .ev { border:1px solid #e2e8f0; border-radius:12px; padding:13px 16px; margin-bottom:10px; background:#f8fafc; }
+        .ev .sig { font-weight:700; color:#1e3a8a; font-size:.82rem; text-transform:uppercase; letter-spacing:.5px; }
+        .ev .val { font-size:1.05rem; font-weight:700; color:#0f172a; margin:2px 0; }
+        .ev .meta { color:#64748b; font-size:.84rem; }
+        .ev .field { color:#2563eb; font-size:.78rem; font-weight:600; }
+        .analysis { background:#f1f5f9; border-left:4px solid #2563eb; border-radius:8px;
+                    padding:14px 16px; color:#334155; font-size:.95rem; line-height:1.55; margin-top:6px; }
+
+        .stTabs [data-baseweb="tab"] { font-weight:600; font-size:1rem; }
+        .stButton button { font-weight:700; border-radius:10px; height:3rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+HERO_SVG = """
+<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ffffff"
+     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  <path d="m9 12 2 2 4-4"/>
+</svg>
+"""
+
+
+def render_hero():
+    st.markdown(
+        f"""
+        <div class="sia-hero">
+          <div class="icon">{HERO_SVG}</div>
+          <div>
+            <h1>Support Integrity Auditor</h1>
+            <p>Semantics-driven, evidence-grounded detection of priority mismatches in CRM support tickets.</p>
+            <div class="chips">
+              <span class="chip">Self-supervised pseudo-labels</span>
+              <span class="chip">Fine-tuned DeBERTa-v3</span>
+              <span class="chip">Hallucination-free dossiers</span>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def metric_cards(pairs):
+    cards = "".join(
+        f'<div class="mcard"><div class="l">{html.escape(str(l))}</div>'
+        f'<div class="v">{html.escape(str(v))}</div></div>'
+        for l, v in pairs
+    )
+    st.markdown(f'<div class="mrow">{cards}</div>', unsafe_allow_html=True)
+
+
+def result_banner(is_mismatch, mtype):
+    if not is_mismatch:
+        st.markdown(
+            '<div class="result correct"><span class="dot correct"></span>'
+            '<div><div class="tag">Audit result</div>'
+            '<div class="head">Priority Correctly Assigned</div></div></div>',
+            unsafe_allow_html=True,
+        )
+        return
+    cls = "crisis" if mtype == "Hidden Crisis" else "falsealarm"
+    st.markdown(
+        f'<div class="result {cls}"><span class="dot {cls}"></span>'
+        f'<div><div class="tag">Mismatch detected</div>'
+        f'<div class="head">{html.escape(mtype)}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_dossier(d):
+    st.markdown('<div class="sec">Evidence Dossier</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sec-sub">Every signal is traceable to a source field in the ticket. '
+        'Absent signals are reported as "none" — no fabricated evidence.</div>',
+        unsafe_allow_html=True,
+    )
+    ev_html = ""
+    for e in d["feature_evidence"]:
+        extra = e.get("interpretation") or (f"weight {e['weight']}" if "weight" in e else "")
+        if "weight" in e and e.get("interpretation"):
+            extra = f"{e['interpretation']} &middot; weight {e['weight']}"
+        ev_html += (
+            f'<div class="ev"><div class="sig">{html.escape(e["signal"])}</div>'
+            f'<div class="val">{html.escape(str(e["value"]))}</div>'
+            f'<div class="meta">{html.escape(str(extra))}</div>'
+            f'<div class="field">source: {html.escape(e["field"])}</div></div>'
+        )
+    st.markdown(
+        f'<div class="dossier">{ev_html}'
+        f'<div class="analysis">{html.escape(d["constraint_analysis"])}</div></div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("View raw JSON dossier"):
+        st.json(d)
+    st.download_button(
+        "Download dossier (JSON)",
+        data=json.dumps(d, indent=2),
+        file_name=f"{d['ticket_id']}_dossier.json",
+        mime="application/json",
+        icon=":material/download:",
+    )
+
+
+def style_fig(fig):
+    fig.update_layout(
+        font=PLOTLY_FONT, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=50, l=10, r=10, b=10), title_font_size=15,
+    )
+    return fig
+
 
 # ══════════════════════════════════════════════════════════════
-# TAB 1 — SINGLE TICKET
+# UI
 # ══════════════════════════════════════════════════════════════
+inject_css()
+render_hero()
+st.write("")
+
+tab1, tab2, tab3 = st.tabs(["Single Ticket", "Batch Analysis", "Dashboard"])
+
+# ── TAB 1 — SINGLE TICKET ─────────────────────────────────────
 with tab1:
-    st.header("Analyze Single Ticket")
+    st.markdown('<div class="sec">Analyze a Single Ticket</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-sub">Enter the ticket details and run the auditor.</div>',
+                unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -79,14 +258,14 @@ with tab1:
             height=120,
         )
         assigned = st.selectbox("Assigned Priority", core.PRIORITY_ORDER, index=0)
-
     with col2:
         channel = st.selectbox("Channel", ["Email", "Chat", "Phone", "Web Form", "Social Media"])
         category = st.selectbox("Category", ["Technical", "Billing", "Account", "General Inquiry", "Fraud"])
         res_time = st.slider("Resolution Time (hours)", 1, 200, 48)
         satisfaction = st.slider("Satisfaction Score", 1, 5, 3)
 
-    if st.button("🔍 Analyze Ticket", type="primary", use_container_width=True):
+    if st.button("Analyze Ticket", type="primary", use_container_width=True,
+                 icon=":material/search:"):
         try:
             tokenizer, model, threshold, quartiles = load_model()
             confidence = predict_ticket(tokenizer, model, subject, description,
@@ -103,51 +282,43 @@ with tab1:
             mtype = (core.decide_mismatch_type(delta, r, assigned_num, found)
                      if is_mismatch else "Correct")
 
-            st.divider()
-            if is_mismatch:
-                icon = "🔴" if mtype == "Hidden Crisis" else "🟡"
-                st.error(f"{icon} **MISMATCH DETECTED — {mtype}**")
-            else:
-                st.success("✅ **Priority Correctly Assigned**")
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Assigned Priority", assigned)
-            c2.metric("Inferred Severity", inferred)
-            c3.metric("Severity Delta", f"{delta:+d}")
-            c4.metric("Confidence", f"{confidence:.1%}")
+            st.write("")
+            result_banner(is_mismatch, mtype)
+            metric_cards([
+                ("Assigned Priority", assigned),
+                ("Inferred Severity", inferred),
+                ("Severity Delta", f"{delta:+d}"),
+                ("Confidence", f"{confidence:.1%}"),
+            ])
 
             if is_mismatch:
                 dossier = core.build_dossier(
                     ticket_id, subject, description, channel,
                     assigned, inferred, confidence, float(res_time), quartiles, mtype,
                 )
-                st.subheader("📋 Evidence Dossier")
-                st.json(dossier)
-                st.download_button(
-                    "⬇ Download Dossier JSON",
-                    data=json.dumps(dossier, indent=2),
-                    file_name=f"{ticket_id}_dossier.json",
-                    mime="application/json",
-                )
+                render_dossier(dossier)
         except Exception as e:
             st.error(f"Error: {e}")
-            st.info("Make sure the model is available at models/deberta_final/")
+            st.info("Make sure the model is available at the configured SIA_MODEL_PATH.")
 
-# ══════════════════════════════════════════════════════════════
-# TAB 2 — BATCH UPLOAD
-# ══════════════════════════════════════════════════════════════
+# ── TAB 2 — BATCH ─────────────────────────────────────────────
 with tab2:
-    st.header("Batch CSV Analysis")
-    st.info("Upload a CSV with columns: Ticket_ID, Ticket_Subject, Ticket_Description, "
-            "Priority_Level, Ticket_Channel, Issue_Category, Resolution_Time_Hours, Satisfaction_Score")
+    st.markdown('<div class="sec">Batch Ticket Analysis</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sec-sub">Upload a CSV with columns: Ticket_ID, Ticket_Subject, '
+        'Ticket_Description, Priority_Level, Ticket_Channel, Issue_Category, '
+        'Resolution_Time_Hours, Satisfaction_Score.</div>',
+        unsafe_allow_html=True,
+    )
 
-    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+    uploaded = st.file_uploader("Upload tickets CSV", type=["csv"])
     if uploaded:
         df = pd.read_csv(uploaded)
-        st.write(f"✓ Loaded **{len(df)}** tickets")
+        st.caption(f"Loaded {len(df)} tickets")
         st.dataframe(df.head(3), use_container_width=True)
 
-        if st.button("🔍 Analyze All Tickets", type="primary", use_container_width=True):
+        if st.button("Analyze All Tickets", type="primary", use_container_width=True,
+                     icon=":material/play_arrow:"):
             try:
                 tokenizer, model, threshold, quartiles = load_model()
                 results = []
@@ -184,41 +355,39 @@ with tab2:
                         "confidence": round(conf, 4),
                     })
                     progress.progress((i + 1) / len(df), text=f"Analyzing {i+1}/{len(df)}...")
+                progress.empty()
 
                 results_df = pd.DataFrame(results)
                 n_mismatch = results_df["Mismatch"].eq("Yes").sum()
-                st.success(f"✓ Done! **{n_mismatch}** mismatches found out of {len(df)} tickets")
+                st.success(f"Done. {n_mismatch} mismatches found out of {len(df)} tickets.")
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total", len(df))
-                c2.metric("Hidden Crisis", (results_df["mismatch_type"] == "Hidden Crisis").sum())
-                c3.metric("False Alarms", (results_df["mismatch_type"] == "False Alarm").sum())
-
+                metric_cards([
+                    ("Total Tickets", len(df)),
+                    ("Mismatches", int(n_mismatch)),
+                    ("Hidden Crisis", int((results_df["mismatch_type"] == "Hidden Crisis").sum())),
+                    ("False Alarms", int((results_df["mismatch_type"] == "False Alarm").sum())),
+                ])
                 st.dataframe(results_df, use_container_width=True)
                 st.download_button(
-                    "⬇ Download Predictions CSV",
+                    "Download Predictions CSV",
                     results_df.to_csv(index=False),
                     "predictions.csv", "text/csv", use_container_width=True,
+                    icon=":material/download:",
                 )
-                st.caption("Tip: download this CSV and upload it in the Dashboard tab.")
+                st.caption("Tip: download this CSV and open the Dashboard tab to visualize it.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# ══════════════════════════════════════════════════════════════
-# TAB 3 — DASHBOARD
-# ══════════════════════════════════════════════════════════════
+# ── TAB 3 — DASHBOARD ─────────────────────────────────────────
 with tab3:
-    st.header("Priority Mismatch Dashboard")
-    st.info("Upload a predictions CSV (output from the Batch tab or predict.py)")
+    st.markdown('<div class="sec">Priority Mismatch Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-sub">Upload a predictions CSV (from the Batch tab or predict.py).</div>',
+                unsafe_allow_html=True)
 
-    dash_file = st.file_uploader("Upload Predictions CSV", type=["csv"], key="dashboard")
+    dash_file = st.file_uploader("Upload predictions CSV", type=["csv"], key="dashboard")
     if not dash_file:
-        st.markdown("""
-        ### How to use:
-        1. Go to **Batch Upload**, upload your tickets CSV, click Analyze.
-        2. Download the predictions CSV.
-        3. Upload that CSV here.
-        """)
+        st.info("Steps: open Batch Analysis, upload your tickets CSV, click Analyze, "
+                "download the predictions CSV, then upload that file here.")
     else:
         df = pd.read_csv(dash_file)
         type_col = "mismatch_type" if "mismatch_type" in df.columns else None
@@ -229,28 +398,27 @@ with tab3:
             st.warning("CSV needs a 'mismatch_type' column. Use output from the Batch tab or predict.py.")
         else:
             total = len(df)
-            n_mis = df[type_col].ne("Correct").sum()
-            n_hc = (df[type_col] == "Hidden Crisis").sum()
-            n_fa = (df[type_col] == "False Alarm").sum()
+            n_mis = int(df[type_col].ne("Correct").sum())
+            n_hc = int((df[type_col] == "Hidden Crisis").sum())
+            n_fa = int((df[type_col] == "False Alarm").sum())
+            metric_cards([
+                ("Total Tickets", total),
+                ("Mismatches", f"{n_mis}  ({n_mis/total*100:.0f}%)"),
+                ("Hidden Crises", n_hc),
+                ("False Alarms", n_fa),
+            ])
+            st.write("")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Tickets", total)
-            c2.metric("Mismatches", int(n_mis), f"{n_mis/total*100:.1f}%")
-            c3.metric("Hidden Crises", int(n_hc))
-            c4.metric("False Alarms", int(n_fa))
-            st.divider()
-
-            # Row 1 — distributions
             col1, col2 = st.columns(2)
             with col1:
                 counts = df[type_col].value_counts()
                 fig = px.pie(values=counts.values, names=counts.index,
-                             title="Mismatch Type Distribution", hole=0.4,
+                             title="Mismatch Type Distribution", hole=0.45,
                              color=counts.index,
-                             color_discrete_map={"Correct": "#2ecc71",
-                                                 "Hidden Crisis": "#e74c3c",
-                                                 "False Alarm": "#f39c12"})
-                st.plotly_chart(fig, use_container_width=True)
+                             color_discrete_map={"Correct": "#10b981",
+                                                 "Hidden Crisis": "#ef4444",
+                                                 "False Alarm": "#f59e0b"})
+                st.plotly_chart(style_fig(fig), use_container_width=True)
             with col2:
                 if asgn_col:
                     counts2 = df[asgn_col].value_counts()
@@ -258,32 +426,47 @@ with tab3:
                                   title="Assigned Priority Distribution",
                                   labels={"x": "Priority", "y": "Count"},
                                   color=counts2.index,
-                                  color_discrete_map={"Low": "#2ecc71", "Medium": "#f39c12",
-                                                      "High": "#e67e22", "Critical": "#e74c3c"})
-                    st.plotly_chart(fig2, use_container_width=True)
+                                  color_discrete_map={"Low": "#10b981", "Medium": "#f59e0b",
+                                                      "High": "#f97316", "Critical": "#ef4444"})
+                    fig2.update_layout(showlegend=False)
+                    st.plotly_chart(style_fig(fig2), use_container_width=True)
 
-            # Row 2 — REQUIRED: severity-delta heatmap across categories x channels
             cat_col = "Issue_Category" if "Issue_Category" in df.columns else None
             chan_col = "Ticket_Channel" if "Ticket_Channel" in df.columns else None
             if cat_col and chan_col and "severity_delta" in df.columns:
-                st.subheader("Severity Delta Heatmap — Category × Channel")
+                st.markdown('<div class="sec">Severity Delta Heatmap — Category x Channel</div>',
+                            unsafe_allow_html=True)
                 df["severity_delta"] = pd.to_numeric(df["severity_delta"], errors="coerce")
                 pivot = df.pivot_table(index=cat_col, columns=chan_col,
                                        values="severity_delta", aggfunc="mean")
                 fig3 = px.imshow(pivot, text_auto=".2f", color_continuous_scale="RdBu_r",
                                  color_continuous_midpoint=0, aspect="auto",
-                                 title="Mean Severity Delta (inferred − assigned). "
-                                       "Red = under-prioritised (Hidden Crisis), Blue = over-prioritised (False Alarm)",
-                                 labels={"x": "Channel", "y": "Category", "color": "Δ"})
-                st.plotly_chart(fig3, use_container_width=True)
-            else:
-                st.caption("Severity-delta heatmap needs Issue_Category, Ticket_Channel "
-                           "and severity_delta columns.")
+                                 labels={"x": "Channel", "y": "Category", "color": "Delta"})
+                st.caption("Red = under-prioritised (Hidden Crisis), Blue = over-prioritised (False Alarm)")
+                st.plotly_chart(style_fig(fig3), use_container_width=True)
 
-            # Row 3 — top flagged tickets
-            st.subheader("Top Flagged Tickets")
+            st.markdown('<div class="sec">Top Flagged Tickets</div>', unsafe_allow_html=True)
             conf_col = "confidence" if "confidence" in df.columns else None
             flagged = df[df[type_col] != "Correct"]
             if conf_col:
                 flagged = flagged.sort_values(conf_col, ascending=False)
             st.dataframe(flagged.head(10), use_container_width=True)
+
+    # Model & data insights (real project images)
+    st.write("")
+    with st.expander("Model & Data Insights"):
+        imgs = [
+            ("assets/training_curves.png", "Training & validation curves"),
+            ("assets/eda/eda_mismatch_dist.png", "Pseudo-label mismatch distribution"),
+            ("assets/eda/eda_category_priority.png", "Priority distribution by issue category"),
+            ("assets/eda/eda_resolution_time.png", "Resolution time by priority"),
+        ]
+        shown = [(p, c) for p, c in imgs if os.path.exists(p)]
+        if not shown:
+            st.caption("Insight images are available in the repository under assets/.")
+        else:
+            for i in range(0, len(shown), 2):
+                cols = st.columns(2)
+                for col, (p, c) in zip(cols, shown[i:i + 2]):
+                    with col:
+                        st.image(p, caption=c, use_container_width=True)
